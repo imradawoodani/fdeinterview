@@ -1,0 +1,48 @@
+{"question": "What is the procedure to lock out a machine before servicing?", "expected": "safety"}
+{"question": "How often must portable fire extinguishers be inspected?", "expected": "safety"}
+{"question": "Do forklift operators need to be trained and certified?", "expected": "safety"}
+{"question": "What PPE is required for grinding metal?", "expected": "safety"}
+{"question": "What are the permissible noise exposure limits over an 8 hour shift?", "expected": "safety"}
+{"question": "When is a permit required to enter a confined space?", "expected": "safety"}
+{"question": "What information must a hazard communication label include?", "expected": "safety"}
+{"question": "How do I safely test a machine while it is energized during servicing?", "expected": "safety"}
+{"question": "What guarding is required on rotating machine parts?", "expected": "safety"}
+{"question": "What are the requirements for portable ladders?", "expected": "safety"}
+{"question": "Who is allowed to remove a lockout or tagout device?", "expected": "safety"}
+{"question": "What working clearances are required in front of electrical panels?", "expected": "safety"}
+{"question": "How often should I lubricate the pump bearings?", "expected": "maintenance"}
+{"question": "What causes a centrifugal pump to cavitate?", "expected": "maintenance"}
+{"question": "How do I set the correct tension on a V-belt?", "expected": "maintenance"}
+{"question": "How is predictive maintenance different from preventive maintenance?", "expected": "maintenance"}
+{"question": "What vibration signature indicates bearing wear?", "expected": "maintenance"}
+{"question": "How do I align a motor shaft to a pump?", "expected": "maintenance"}
+{"question": "What grease is recommended for high temperature bearings?", "expected": "maintenance"}
+{"question": "What is reliability centered maintenance?", "expected": "maintenance"}
+{"question": "How do I troubleshoot an electric motor that keeps overheating?", "expected": "maintenance"}
+{"question": "What are common failure modes for rolling element bearings?", "expected": "maintenance"}
+{"question": "How do I inspect a gearbox for wear?", "expected": "maintenance"}
+{"question": "What is a typical preventive maintenance schedule for a pump?", "expected": "maintenance"}
+{"question": "What does a Cpk value below 1.33 indicate?", "expected": "quality"}
+{"question": "How do I read an X-bar and R control chart?", "expected": "quality"}
+{"question": "What is the difference between Cp and Cpk?", "expected": "quality"}
+{"question": "How many samples should I pull for acceptance sampling?", "expected": "quality"}
+{"question": "What are the core principles of Six Sigma?", "expected": "quality"}
+{"question": "When is a process considered out of control on a control chart?", "expected": "quality"}
+{"question": "What is statistical process control?", "expected": "quality"}
+{"question": "What are design controls under the FDA quality system regulation?", "expected": "quality"}
+{"question": "What is required for corrective and preventive action?", "expected": "quality"}
+{"question": "How do I calculate process capability?", "expected": "quality"}
+{"question": "What production and process controls does the quality system regulation require?", "expected": "quality"}
+{"question": "What statistical techniques are required for quality control?", "expected": "quality"}
+{"question": "How does Sour Patch Kids candy taste?", "expected": "out_of_scope"}
+{"question": "Who won the world cup last year?", "expected": "out_of_scope"}
+{"question": "What is the capital of France?", "expected": "out_of_scope"}
+{"question": "Tell me a joke.", "expected": "out_of_scope"}
+{"question": "What is the best pizza topping?", "expected": "out_of_scope"}
+{"question": "Will it rain tomorrow?", "expected": "out_of_scope"}
+{"question": "How do I bake chocolate chip cookies?", "expected": "out_of_scope"}
+{"question": "What is a good movie to watch tonight?", "expected": "out_of_scope"}
+{"question": "How tall is Mount Everest?", "expected": "out_of_scope"}
+{"question": "Recommend a relaxing vacation destination.", "expected": "out_of_scope"}
+{"question": "How do I learn to play the guitar?", "expected": "out_of_scope"}
+{"question": "What time does the supermarket close on Sundays?", "expected": "out_of_scope"}

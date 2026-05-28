@@ -44,13 +44,15 @@ class PortkeyClient:
             "x-portkey-api-key": self.cfg.portkey_api_key,
             "Content-Type": "application/json",
         }
+        # Only attach provider routing when explicitly configured. If just the
+        # Portkey API key is set (provider bound server-side, or carried in the
+        # model slug like "@provider/model"), send no Authorization header —
+        # an empty "Bearer " is an illegal header value.
         if self.cfg.portkey_virtual_key:
             headers["x-portkey-virtual-key"] = self.cfg.portkey_virtual_key
-        else:
-            # Provider mode: tell Portkey which provider, and pass that provider's
-            # raw key in the Authorization header.
-            if self.cfg.portkey_provider:
-                headers["x-portkey-provider"] = self.cfg.portkey_provider
+        if self.cfg.portkey_provider:
+            headers["x-portkey-provider"] = self.cfg.portkey_provider
+        if self.cfg.portkey_provider_api_key:
             headers["Authorization"] = f"Bearer {self.cfg.portkey_provider_api_key}"
         return headers
 

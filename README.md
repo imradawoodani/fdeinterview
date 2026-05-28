@@ -22,42 +22,54 @@ question
    │
    ▼
 [ Scope gate ]  reject off-topic questions (trivia, small talk, etc.)
-   │             • embedding mode: top cosine similarity < threshold → reject
-   │             • lexical mode:   query-term coverage of top chunk too low → reject
+   │             • semantic: top embedding cosine < OOS_COSINE_MIN → reject
+   │             • strong-lexical override keeps exact-terminology queries
    │             • LLM router can also return "out_of_scope"
    ▼
-[ Router ]  LLM classifier (via Portkey) + retrieval-overlap evidence
-   │         └─ falls back to pure-lexical routing when no API key is set
+[ Router ]  LLM classifier (via Portkey, few-shot) + retrieval-overlap evidence
+   │         └─ falls back to lexical/embedding routing when no API key is set
    ▼
 [ Retriever ]  top-k chunks *within the chosen category*
-   │             • embedding mode: FAISS cosine over Portkey embeddings
-   │             • lexical mode:   hand-rolled BM25
+   │             • hybrid: BM25 (lexical) + dense (embeddings) fused via RRF
    ▼
 [ Answerer ]  LLM synthesizes a cited answer from retrieved passages
               └─ falls back to showing the top passage when no API key is set
 ```
 
 Design choices for a robust prototype:
-- **Runs with zero keys.** Routing, retrieval, and out-of-scope rejection are
-  fully functional offline using BM25. Adding a Portkey key upgrades routing to
-  an LLM classifier, switches retrieval to **FAISS embeddings**, and enables
-  synthesized multi-source answers.
-- **Refuses unrelated questions.** Two independent gates (a relevance threshold
-  on the corpus + the router's own judgment) reject anything that isn't about
-  safety, maintenance, or quality — so the system doesn't fabricate answers.
-- **Grounded + cited.** The answerer is constrained to the retrieved passages
-  and cites them as `[1]`, `[2]`, … with links back to the source.
-- **Graceful degradation.** If embeddings are configured but a call fails at
-  query time, retrieval transparently falls back to BM25.
+- **Open embeddings by default.** Retrieval uses a local
+  `sentence-transformers` model (`all-MiniLM-L6-v2`) — **no API key required** —
+  stored in a FAISS cosine index. Switch to hosted Portkey embeddings with
+  `EMBED_BACKEND=portkey`.
+- **Hybrid retrieval.** BM25 and dense results are fused with Reciprocal Rank
+  Fusion, so exact terminology (part numbers, `1910.147`, chemical names) and
+  paraphrased intent both retrieve well.
+- **Refuses unrelated questions.** Two independent gates — a semantic relevance
+  threshold + the LLM router's own judgment — reject anything that isn't about
+  safety, maintenance, or quality, so the system doesn't fabricate answers.
+- **Empirically tuned rejection.** `OOS_COSINE_MIN` is set from a sweep over a
+  labeled eval set (`eval/`), not guessed. It is model-specific — re-tune it
+  whenever you change the embedding model.
+- **Runs with zero LLM keys.** Routing, hybrid retrieval, and rejection work
+  offline; a Portkey key adds the LLM classifier + synthesized cited answers.
+- **Grounded + cited.** The answerer is constrained to retrieved passages and
+  cites them as `[1]`, `[2]`, … with links back to the source.
 
-### Retrieval: BM25 vs. embeddings
+### Retrieval modes
 
-| | Lexical (default, no key) | Embeddings (with Portkey key) |
+| | Default (no key) | + Portkey key |
 | --- | --- | --- |
-| Index | hand-rolled BM25 | FAISS `IndexFlatIP` (cosine) over Portkey embeddings |
-| Routing signal | BM25 per-category scores | per-category cosine similarity |
-| Out-of-scope gate | top-chunk term coverage | top cosine similarity threshold (`OOS_COSINE_MIN`, 0.30) |
-| Strengths | zero-dependency, deterministic, strong on keyword-heavy regulatory text | semantic recall + reliable off-topic detection |
+| Embeddings | local `all-MiniLM-L6-v2` (sentence-transformers) | local, or hosted (`EMBED_BACKEND=portkey`) |
+| Retrieval | hybrid BM25 + dense (RRF) | same |
+| Routing | embedding/BM25 category scores | **few-shot LLM classifier** (+ evidence) |
+| Out-of-scope gate | semantic cosine threshold + strong-lexical override | same, plus LLM can abstain |
+| Answers | top passage shown extractively | **LLM-synthesized, cited** |
+
+### Measured quality (eval/questions.jsonl, 48 questions)
+
+With the live LLM router + local embeddings: **routing accuracy 36/36 (100%)**,
+**out-of-scope detection F1 = 1.00** (precision 1.00, recall 1.00). Numbers are
+on a small hand-written set — treat as a smoke test, not a guarantee.
 
 ## Setup
 
@@ -68,52 +80,58 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 1. Build the corpus (fetches from the internet)
+### 1. Build the corpus + embedding index (fetches from the internet)
 
 ```bash
-./venv/bin/python -m docrouter.ingest          # ~30–60s; caches raw responses
-./venv/bin/python -m docrouter.ingest --fresh  # bypass cache and re-fetch
+./venv/bin/python -m docrouter.ingest --embed   # fetch + chunk + build FAISS index
+./venv/bin/python -m docrouter.ingest --fresh    # bypass HTTP cache and re-fetch
+./venv/bin/python -m docrouter.ingest --no-embed # corpus only, BM25-only retrieval
 ```
 
-### 2. (Optional) Connect a model via Portkey
+By default this uses the **local** `all-MiniLM-L6-v2` model (no key needed). The
+first run downloads the model (~80 MB).
 
-Copy `.env.example` to `.env` and fill in your Portkey details:
+### 2. (Optional) Connect an LLM via Portkey
+
+Copy `.env.example` to `.env` and fill in:
 
 ```bash
 cp .env.example .env
 ```
 
-- `PORTKEY_API_KEY` — your Portkey API key (required for LLM/embedding mode)
-- `PORTKEY_BASE_URL` — gateway base URL, ending in `/v1`
-- `LLM_MODEL` — chat model, e.g. `gpt-4o-mini`, `claude-3-5-sonnet-latest`
-- `EMBED_MODEL` — embeddings model, e.g. `text-embedding-3-small`
-- *(optional)* `PORTKEY_VIRTUAL_KEY`, or `PORTKEY_PROVIDER` +
-  `PORTKEY_PROVIDER_API_KEY` — only if your key isn't already bound to a provider
-
-Then build the embedding/FAISS index (requires the key above):
-
-```bash
-./venv/bin/python -m docrouter.ingest --embed      # embed + build FAISS index
-./venv/bin/python -m docrouter.ingest --no-embed   # corpus only, skip embeddings
-```
-
-If `EMBED_MODEL` isn't set or embedding fails, the app falls back to BM25 and
-LLM routing/answering still work.
+- `PORTKEY_API_KEY`, `PORTKEY_BASE_URL` (ending in `/v1`), `LLM_MODEL`
+- With many gateways the provider is encoded in the model slug
+  (e.g. `@aws-bedrock-use2/us.anthropic.claude-sonnet-4-5-...`), so the API key +
+  base URL + model is enough — no virtual/provider keys needed.
+- To use hosted embeddings instead of local: set `EMBED_BACKEND=portkey` and
+  `EMBED_MODEL`, then re-run ingest with `--embed`.
 
 ### 3. Ask questions
 
-CLI:
-
 ```bash
+# CLI
 ./venv/bin/python cli.py "What's the procedure to lock out a machine before servicing?"
 ./venv/bin/python cli.py            # interactive
+
+# Web UI
+./venv/bin/streamlit run streamlit_app.py
+
+# REST API
+./venv/bin/uvicorn api:app --port 8000
+curl -s localhost:8000/ask -H 'content-type: application/json' \
+  -d '{"question": "how often must fire extinguishers be inspected?"}'
 ```
 
-Web UI:
+### 4. Evaluate + tune the out-of-scope threshold
 
 ```bash
-./venv/bin/streamlit run streamlit_app.py
+./venv/bin/python -m eval.run_eval           # routing accuracy + OOS precision/recall
+./venv/bin/python -m eval.run_eval --sweep   # sweep OOS_COSINE_MIN, recommend a value
 ```
+
+`OOS_COSINE_MIN` is **embedding-model-specific**: the sweep prints the cosine
+distributions for in-scope vs. out-of-scope questions and the F1-optimal cutoff.
+Re-run it (ideally with real supervisor questions) whenever you change the model.
 
 ## Project layout
 
@@ -121,23 +139,26 @@ Web UI:
 docrouter/
   config.py      # env loading + category definitions + thresholds
   sources.py     # curated source URLs per category
-  ingest.py      # fetch → clean → chunk → data/corpus.json (+ optional embeddings)
+  ingest.py      # fetch → clean → chunk → corpus.json (+ build embedding index)
   textutil.py    # HTML/XML→text, chunking, tokenization (stdlib)
   retriever.py   # BM25 index + per-category scoring + lexical scope check
-  embeddings.py  # Portkey embeddings → FAISS cosine retriever + scope check
+  embedders.py   # pluggable embedders: local sentence-transformers | Portkey
+  embeddings.py  # FAISS cosine retriever + semantic scope check
+  hybrid.py      # BM25 + dense fusion (RRF) + hybrid scope gate
   llm.py         # Portkey gateway client (chat + embeddings, httpx)
-  router.py      # intelligent routing (LLM + lexical fallback, can abstain)
+  router.py      # few-shot LLM classifier (+ lexical fallback, can abstain)
   rag.py         # orchestration: scope gate → route → retrieve → answer
+api.py           # FastAPI service (/health, /ask)
 cli.py
 streamlit_app.py
+eval/            # labeled questions + accuracy/OOS harness + threshold sweep
 ```
 
 ## Notes / next steps
 
+- Grow `eval/questions.jsonl` with real supervisor questions and re-tune
+  `OOS_COSINE_MIN`; the current value is fit on a small set.
 - Make routing return multiple categories (and merge retrieval) when a question
   legitimately spans, e.g., maintenance + safety (lockout during servicing).
-- Add an evaluation set of supervisor questions with expected category + source
-  to measure routing accuracy, answer faithfulness, and the out-of-scope
-  precision/recall (tune `OOS_COSINE_MIN`).
-- Persist a richer FAISS index (e.g., IVF/HNSW) once the corpus grows beyond a
-  few thousand chunks; `IndexFlatIP` is exact and fine at this size.
+- Persist a richer FAISS index (IVF/HNSW) once the corpus grows beyond a few
+  thousand chunks; `IndexFlatIP` is exact and fine at this size.

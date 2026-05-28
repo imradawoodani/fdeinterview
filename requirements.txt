@@ -5,3 +5,8 @@ httpx==0.28.1
 numpy==2.4.6
 pandas==3.0.3
 faiss-cpu==1.14.2
+fastapi==0.136.3
+uvicorn==0.48.0
+# Local open-source embeddings (default EMBED_BACKEND=local). Pulls torch (~large).
+# Not needed if you set EMBED_BACKEND=portkey.
+sentence-transformers==5.5.1

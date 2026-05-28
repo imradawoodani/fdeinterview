@@ -10,6 +10,7 @@ This makes routing robust with zero keys, and "intelligent" when a model is pres
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 
 from .config import CATEGORIES
@@ -19,6 +20,22 @@ from .retriever import BM25Retriever
 OUT_OF_SCOPE = "out_of_scope"
 VALID = set(CATEGORIES.keys()) | {OUT_OF_SCOPE}
 
+# Few-shot examples steer the classifier on ambiguous phrasing and on the
+# out-of-scope behavior, which is the highest-stakes part of routing.
+FEW_SHOT = [
+    ("How do I de-energize the conveyor before clearing a jam?", "safety"),
+    ("What PPE is required when handling the cleaning solvent?", "safety"),
+    ("The forklift's horn isn't working, can it still be operated?", "safety"),
+    ("What's the recommended regreasing interval for the motor bearings?", "maintenance"),
+    ("Pump is cavitating and vibrating — what should I check?", "maintenance"),
+    ("How do I tension a V-belt correctly?", "maintenance"),
+    ("Our Cpk dropped below 1.33, what does that mean?", "quality"),
+    ("How many samples do I pull for acceptance sampling?", "quality"),
+    ("A point is outside the control limits — is the process out of control?", "quality"),
+    ("What's the weather tomorrow?", "out_of_scope"),
+    ("How does Sour Patch Kids candy taste?", "out_of_scope"),
+]
+
 
 @dataclass
 class RouteResult:
@@ -27,6 +44,20 @@ class RouteResult:
     confidence: float
     reasoning: str
     scores: dict[str, float] = field(default_factory=dict)
+
+
+def _extract_json(raw: str) -> dict:
+    """Parse a JSON object from an LLM reply, tolerating markdown code fences and
+    surrounding prose (e.g. Claude often returns ```json {...} ```)."""
+    text = raw.strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise
 
 
 def _normalize_scores(scores: dict[str, float]) -> dict[str, float]:
@@ -63,8 +94,10 @@ def _build_prompt(question: str, lexical: dict[str, float]) -> list[dict]:
         '{"category": "<safety|maintenance|quality|out_of_scope>", '
         '"confidence": <0..1>, "reasoning": "<one sentence>"}.'
     )
+    shots = "\n".join(f'  Q: "{q}" -> {{"category": "{c}"}}' for q, c in FEW_SHOT)
     user = (
         f"Categories:\n{cat_lines}\n\n"
+        f"Examples:\n{shots}\n\n"
         f"Retrieval-overlap evidence (normalized): {evidence}\n\n"
         f"Question: {question}\n\n"
         "Pick the single best category, or 'out_of_scope' if the question does not "
@@ -83,7 +116,7 @@ def route(question: str, retriever: BM25Retriever, llm: PortkeyClient) -> RouteR
     try:
         raw = llm.chat(_build_prompt(question, lexical), temperature=0.0,
                        max_tokens=200, response_json=True)
-        data = json.loads(raw)
+        data = _extract_json(raw)
         category = str(data.get("category", "")).strip().lower()
         if category not in VALID:
             raise ValueError(f"LLM returned invalid category: {category!r}")

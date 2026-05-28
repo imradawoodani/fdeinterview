@@ -1,17 +1,21 @@
 """Embedding-based retrieval with FAISS.
 
-We embed every chunk via Portkey at ingest time, L2-normalize, and store them in a
+We embed every chunk (via a pluggable embedder), L2-normalize, and store them in a
 FAISS `IndexFlatIP` (inner product on normalized vectors == cosine similarity).
 At query time we embed the question and search. Because the index is small, we
 search the whole index and derive both scoped results and per-category signals
 from one pass. Cosine similarity also gives us a clean out-of-scope threshold.
+
+An `index_meta.json` records which embedder built the index so we never query a
+local-model index with Portkey vectors (or vice versa).
 """
 from __future__ import annotations
 
+import json
+
 import numpy as np
 
-from .config import EMBEDDINGS_PATH, FAISS_PATH, Config
-from .llm import LLMError, PortkeyClient
+from .config import EMBEDDINGS_PATH, FAISS_PATH, INDEX_META_PATH, Config
 from .retriever import Hit
 
 
@@ -23,21 +27,23 @@ def _normalize(mat: np.ndarray) -> np.ndarray:
     return mat
 
 
-def build_index(records: list[dict], client: PortkeyClient) -> np.ndarray:
-    """Embed all chunks and persist embeddings + a FAISS index. Returns the matrix."""
+def build_index(records: list[dict], embedder) -> np.ndarray:
+    """Embed all chunks and persist embeddings + FAISS index + metadata."""
     import faiss
 
     texts = [r["text"] for r in records]
-    print(f"  embedding {len(texts)} chunks via {client.cfg.embed_model}…")
-    mat = client.embed(texts)
-    mat = _normalize(mat)
+    print(f"  embedding {len(texts)} chunks via {embedder.name}…")
+    mat = _normalize(embedder.embed(texts))
 
     index = faiss.IndexFlatIP(mat.shape[1])
     index.add(mat)
 
     np.save(EMBEDDINGS_PATH, mat)
     faiss.write_index(index, str(FAISS_PATH))
-    print(f"  saved embeddings ({mat.shape}) and FAISS index.")
+    INDEX_META_PATH.write_text(json.dumps({
+        "embedder": embedder.name, "dim": int(mat.shape[1]), "count": len(records),
+    }, indent=2))
+    print(f"  saved embeddings ({mat.shape}) and FAISS index [{embedder.name}].")
     return mat
 
 
@@ -45,14 +51,20 @@ def index_exists() -> bool:
     return EMBEDDINGS_PATH.exists() and FAISS_PATH.exists()
 
 
-class EmbeddingRetriever:
-    """FAISS cosine retriever. Requires a client to embed the query at search time."""
+def index_meta() -> dict:
+    if INDEX_META_PATH.exists():
+        return json.loads(INDEX_META_PATH.read_text())
+    return {}
 
-    def __init__(self, records: list[dict], client: PortkeyClient, cfg: Config):
+
+class EmbeddingRetriever:
+    """FAISS cosine retriever. Uses an embedder to embed the query at search time."""
+
+    def __init__(self, records: list[dict], embedder, cfg: Config):
         import faiss
 
         self.records = records
-        self.client = client
+        self.embedder = embedder
         self.cfg = cfg
         self.index = faiss.read_index(str(FAISS_PATH))
         if self.index.ntotal != len(records):
@@ -60,12 +72,17 @@ class EmbeddingRetriever:
                 f"FAISS index size ({self.index.ntotal}) != corpus size ({len(records)}). "
                 "Re-run ingestion with --embed."
             )
+        meta = index_meta()
+        if meta.get("embedder") and meta["embedder"] != embedder.name:
+            raise ValueError(
+                f"Index was built with {meta['embedder']!r} but the active embedder is "
+                f"{embedder.name!r}. Re-run `python -m docrouter.ingest --embed`."
+            )
         self.categories = [r["category"] for r in records]
         self._cache: tuple[str, list[tuple[int, float]]] | None = None
 
     def _embed_query(self, query: str) -> np.ndarray:
-        vec = self.client.embed([query])
-        return _normalize(vec)
+        return _normalize(self.embedder.embed([query]))
 
     def _search_all(self, query: str) -> list[tuple[int, float]]:
         # Cache the most recent query so route/scope/search share one embed call.

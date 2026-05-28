@@ -102,17 +102,29 @@ class DocRouterPipeline:
         self.llm = PortkeyClient(self.cfg)
         self.bm25 = BM25Retriever(records)
 
-        # Prefer embedding retrieval when a FAISS index + key are present.
-        self.embedder = None
+        # Build the dense (FAISS) retriever if an index exists and a backend is
+        # available, then fuse with BM25 (hybrid) unless disabled.
+        self.dense = None
+        self.embedder = None  # the active embedding-capable retriever (dense or hybrid)
         self.retrieval_mode = "lexical (BM25)"
         if self.cfg.embed_enabled:
             try:
+                from .embedders import make_embedder
                 from .embeddings import EmbeddingRetriever, index_exists
 
                 if index_exists():
-                    self.embedder = EmbeddingRetriever(records, self.llm, self.cfg)
-                    self.retrieval_mode = f"embeddings (FAISS, {self.cfg.embed_model})"
-            except Exception as exc:  # malformed index, faiss missing, etc.
+                    embedder = make_embedder(self.cfg, self.llm)
+                    self.dense = EmbeddingRetriever(records, embedder, self.cfg)
+                    if self.cfg.hybrid:
+                        from .hybrid import HybridRetriever
+
+                        self.embedder = HybridRetriever(
+                            records, self.bm25, self.dense, self.cfg)
+                        self.retrieval_mode = f"hybrid BM25 + {embedder.name} (RRF)"
+                    else:
+                        self.embedder = self.dense
+                        self.retrieval_mode = f"embeddings ({embedder.name})"
+            except Exception as exc:  # malformed index, missing lib, etc.
                 print(f"[WARN] embedding retriever unavailable: {exc}")
 
     @property

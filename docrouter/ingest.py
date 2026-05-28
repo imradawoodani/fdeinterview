@@ -121,21 +121,20 @@ def build_corpus(fresh: bool = False, embed: bool | None = None) -> dict:
     }
     CORPUS_PATH.write_text(json.dumps(corpus, indent=2))
 
-    # Embedding index (optional). Default: build it when a Portkey key is present.
+    # Embedding index. Default: build it whenever embeddings are configured
+    # (the local backend needs no key, so this runs out of the box).
     should_embed = cfg.embed_enabled if embed is None else embed
     if should_embed:
+        from .embedders import EmbedderError, make_embedder
         from .embeddings import build_index
         from .llm import LLMError, PortkeyClient
 
-        if not cfg.embed_enabled:
-            print("  [WARN] --embed requested but PORTKEY_API_KEY/EMBED_MODEL not set; "
-                  "skipping embeddings.", file=sys.stderr)
-        else:
-            try:
-                build_index(records, PortkeyClient(cfg))
-            except LLMError as exc:
-                print(f"  [WARN] embedding failed ({exc}). Falling back to BM25 only.",
-                      file=sys.stderr)
+        try:
+            embedder = make_embedder(cfg, PortkeyClient(cfg))
+            build_index(records, embedder)
+        except (EmbedderError, LLMError) as exc:
+            print(f"  [WARN] embedding skipped ({exc}). Using BM25 only.",
+                  file=sys.stderr)
     return corpus
 
 
