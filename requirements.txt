@@ -1,0 +1,7 @@
+# Pinned to what's already in ./venv (Python 3.13)
+streamlit==1.57.0
+requests==2.34.2
+httpx==0.28.1
+numpy==2.4.6
+pandas==3.0.3
+faiss-cpu==1.14.2
