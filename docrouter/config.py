@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -55,6 +56,11 @@ def load_dotenv(path: Path | None = None) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
+        value = value.strip()
+        # Strip an inline comment only when it's unquoted and whitespace-preceded
+        # (so values may still contain '#', and '  # ...' notes are ignored).
+        if not (value.startswith('"') or value.startswith("'")):
+            value = re.split(r"\s+#", value, maxsplit=1)[0]
         key, value = key.strip(), value.strip().strip('"').strip("'")
         # Don't clobber values already set in the real environment.
         os.environ.setdefault(key, value)
