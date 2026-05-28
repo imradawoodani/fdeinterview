@@ -87,11 +87,12 @@ class Config:
     rrf_k: int = 60                # Reciprocal Rank Fusion constant
     # Out-of-scope gating: refuse questions the corpus can't support.
     # NOTE: oos_cosine_min is embedding-model-specific and MUST be re-tuned per
-    # model on REAL questions (see `python -m eval.run_eval --sweep`). 0.31 is the
-    # gap midpoint for all-MiniLM-L6-v2 on eval/questions.jsonl (in-scope min 0.315,
-    # out-of-scope max 0.302 -> perfect separation on that set). It is tuned on a
-    # small set; widen the eval set before trusting it in production.
-    oos_cosine_min: float = 0.31   # min top cosine similarity (embedding mode)
+    # model on REAL questions (see `python -m eval.run_eval --sweep`). 0.32 sits in
+    # the perfect-F1 plateau for text-embedding-3-large on eval/questions.jsonl
+    # (in-scope min 0.396, out-of-scope max 0.232 -> wide clean gap). For the local
+    # all-MiniLM-L6-v2 model the tuned value is ~0.31. Tuned on a small set; widen
+    # the eval set before trusting it in production.
+    oos_cosine_min: float = 0.32   # min top cosine similarity (embedding mode)
     oos_min_terms: int = 3         # lexical mode: only gate queries this "wordy"
     oos_min_coverage: int = 2      # lexical mode: distinct query terms in top chunk
     # Hybrid only: a query below the cosine gate is still kept in scope if its top
@@ -113,7 +114,7 @@ class Config:
             embed_backend=os.environ.get("EMBED_BACKEND", "local").strip().lower(),
             local_embed_model=os.environ.get("LOCAL_EMBED_MODEL", "all-MiniLM-L6-v2"),
             embed_model=os.environ.get("EMBED_MODEL", "text-embedding-3-small"),
-            oos_cosine_min=float(os.environ.get("OOS_COSINE_MIN", "0.31")),
+            oos_cosine_min=float(os.environ.get("OOS_COSINE_MIN", "0.32")),
             hybrid=os.environ.get("HYBRID", "1") not in {"0", "false", "False"},
         )
 
